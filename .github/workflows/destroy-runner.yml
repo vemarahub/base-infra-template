@@ -126,8 +126,18 @@ jobs:
           aws ec2 delete-security-group --group-id "$SG_ID" --region ${{ github.event.inputs.aws_region }} || true
         fi
         
-        # Find and delete key pairs
-        aws ec2 delete-key-pair --key-name "${{ github.event.inputs.project_name }}-runner-key" --region ${{ github.event.inputs.aws_region }} 2>/dev/null || true
+        # Find and delete key pairs (with wildcard pattern)
+        KEY_PAIRS=$(aws ec2 describe-key-pairs \
+          --filters "Name=key-name,Values=${{ github.event.inputs.project_name }}-runner-key-*" \
+          --query 'KeyPairs[].KeyName' \
+          --output text --region ${{ github.event.inputs.aws_region }} 2>/dev/null || echo "")
+        
+        if [[ -n "$KEY_PAIRS" && "$KEY_PAIRS" != "None" ]]; then
+          for key_name in $KEY_PAIRS; do
+            echo "Deleting key pair: $key_name"
+            aws ec2 delete-key-pair --key-name "$key_name" --region ${{ github.event.inputs.aws_region }} 2>/dev/null || true
+          done
+        fi
 
     - name: Cleanup Summary
       run: |

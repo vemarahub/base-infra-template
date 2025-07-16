@@ -93,14 +93,12 @@ else
     if [ "$AWS_REGION" = "us-east-1" ]; then
         aws s3api create-bucket \
             --bucket "$BUCKET_NAME" \
-            --region "$AWS_REGION" \
-            --no-cli-pager
+            --region "$AWS_REGION"
     else
         aws s3api create-bucket \
             --bucket "$BUCKET_NAME" \
             --region "$AWS_REGION" \
-            --create-bucket-configuration LocationConstraint="$AWS_REGION" \
-            --no-cli-pager
+            --create-bucket-configuration LocationConstraint="$AWS_REGION"
     fi
     echo -e "${GREEN}S3 bucket created successfully${NC}"
 fi
@@ -108,8 +106,7 @@ fi
 # Enable versioning
 aws s3api put-bucket-versioning \
     --bucket "$BUCKET_NAME" \
-    --versioning-configuration Status=Enabled \
-    --no-cli-pager
+    --versioning-configuration Status=Enabled
 
 # Enable encryption
 aws s3api put-bucket-encryption \
@@ -122,15 +119,13 @@ aws s3api put-bucket-encryption \
                 }
             }
         ]
-    }' \
-    --no-cli-pager
+    }'
 
 # Block public access
 aws s3api put-public-access-block \
     --bucket "$BUCKET_NAME" \
     --public-access-block-configuration \
-        BlockPublicAcls=true,IgnorePublicAcls=true,BlockPublicPolicy=true,RestrictPublicBuckets=true \
-    --no-cli-pager
+        BlockPublicAcls=true,IgnorePublicAcls=true,BlockPublicPolicy=true,RestrictPublicBuckets=true
 
 echo -e "${GREEN}S3 bucket created successfully${NC}"
 
@@ -146,8 +141,7 @@ else
         --attribute-definitions AttributeName=LockID,AttributeType=S \
         --key-schema AttributeName=LockID,KeyType=HASH \
         --billing-mode PAY_PER_REQUEST \
-        --region "$AWS_REGION" \
-        --no-cli-pager
+        --region "$AWS_REGION"
 
     # Wait for table to be active
     echo "Waiting for DynamoDB table to be active..."

@@ -3,7 +3,7 @@
 
 # S3 bucket for Terraform state
 resource "aws_s3_bucket" "terraform_state" {
-  bucket = "terraform-state-${var.project_name}-${var.environment}-${random_string.state_suffix.result}"
+  bucket = "terraform-state-${local.clean_project_name}-${var.environment}-${random_string.state_suffix.result}"
 
   tags = {
     Name        = "Terraform State Bucket"
@@ -49,7 +49,7 @@ resource "aws_s3_bucket_public_access_block" "terraform_state" {
 
 # DynamoDB table for state locking
 resource "aws_dynamodb_table" "terraform_state_lock" {
-  name           = "terraform-state-lock-${var.project_name}"
+  name           = "terraform-state-lock-${local.clean_project_name}"
   billing_mode   = "PAY_PER_REQUEST"
   hash_key       = "LockID"
 

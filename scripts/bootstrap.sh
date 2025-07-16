@@ -60,9 +60,12 @@ if ! aws sts get-caller-identity &> /dev/null; then
     exit 1
 fi
 
+# Sanitize project name for S3 bucket (only lowercase letters, numbers, and hyphens)
+SANITIZED_PROJECT=$(echo "$PROJECT_NAME" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9-]/-/g' | sed 's/--*/-/g' | sed 's/^-\|-$//g')
+
 # Check if bucket already exists for this project/environment
-BUCKET_PREFIX="terraform-state-${PROJECT_NAME}-${ENVIRONMENT}-"
-TABLE_NAME="terraform-state-lock-${PROJECT_NAME}"
+BUCKET_PREFIX="terraform-state-${SANITIZED_PROJECT}-${ENVIRONMENT}-"
+TABLE_NAME="terraform-state-lock-${SANITIZED_PROJECT}"
 
 echo -e "${YELLOW}Checking for existing S3 bucket with prefix: $BUCKET_PREFIX${NC}"
 
@@ -71,7 +74,7 @@ EXISTING_BUCKET=""
 ALL_BUCKETS=$(aws s3api list-buckets --query "Buckets[].Name" --output text --region "$AWS_REGION" 2>/dev/null || echo "")
 
 for bucket in $ALL_BUCKETS; do
-    if [[ "$bucket" == terraform-state-${PROJECT_NAME}-${ENVIRONMENT}-* ]]; then
+    if [[ "$bucket" == terraform-state-${SANITIZED_PROJECT}-${ENVIRONMENT}-* ]]; then
         EXISTING_BUCKET="$bucket"
         break
     fi
@@ -85,7 +88,7 @@ if [ -n "$EXISTING_BUCKET" ]; then
 else
     # Generate random suffix for new bucket name
     RANDOM_SUFFIX=$(openssl rand -hex 4)
-    BUCKET_NAME="terraform-state-${PROJECT_NAME}-${ENVIRONMENT}-${RANDOM_SUFFIX}"
+    BUCKET_NAME="terraform-state-${SANITIZED_PROJECT}-${ENVIRONMENT}-${RANDOM_SUFFIX}"
     
     echo -e "${YELLOW}Creating new S3 bucket: $BUCKET_NAME${NC}"
     

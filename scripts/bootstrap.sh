@@ -66,12 +66,22 @@ TABLE_NAME="terraform-state-lock-${PROJECT_NAME}"
 
 echo -e "${YELLOW}Checking for existing S3 bucket with prefix: $BUCKET_PREFIX${NC}"
 
-# Look for existing bucket (get first match only)
-EXISTING_BUCKET=$(aws s3api list-buckets --query "Buckets[?starts_with(Name, \`$BUCKET_PREFIX\`)].Name | [0]" --output text --region "$AWS_REGION" 2>/dev/null || echo "")
+# Look for existing bucket (simplified approach)
+EXISTING_BUCKET=""
+ALL_BUCKETS=$(aws s3api list-buckets --query "Buckets[].Name" --output text --region "$AWS_REGION" 2>/dev/null || echo "")
+
+for bucket in $ALL_BUCKETS; do
+    if [[ "$bucket" == terraform-state-${PROJECT_NAME}-${ENVIRONMENT}-* ]]; then
+        EXISTING_BUCKET="$bucket"
+        break
+    fi
+done
+
+echo -e "${YELLOW}Found existing S3 bucket: ${EXISTING_BUCKET:-None}${NC}"
 
 if [ -n "$EXISTING_BUCKET" ]; then
     BUCKET_NAME="$EXISTING_BUCKET"
-    echo -e "${YELLOW}Found existing S3 bucket: $BUCKET_NAME${NC}"
+    echo -e "${YELLOW}Using existing S3 bucket: $BUCKET_NAME${NC}"
 else
     # Generate random suffix for new bucket name
     RANDOM_SUFFIX=$(openssl rand -hex 4)

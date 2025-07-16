@@ -1,0 +1,143 @@
+name: 'Destroy Self-Hosted Runner'
+
+on:
+  workflow_dispatch:
+    inputs:
+      project_name:
+        description: 'Project name of the runner to destroy'
+        required: true
+        default: 'github-runner'
+      aws_region:
+        description: 'AWS region where runner is deployed'
+        required: true
+        default: 'us-east-1'
+        type: choice
+        options:
+          - us-east-1
+          - us-west-2
+          - eu-west-1
+          - ap-southeast-1
+      confirm_destroy:
+        description: 'Type "DESTROY" to confirm deletion'
+        required: true
+
+env:
+  AWS_REGION: ${{ github.event.inputs.aws_region }}
+
+jobs:
+  destroy-runner:
+    name: 'Destroy Runner Infrastructure'
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Validate Confirmation
+      run: |
+        if [[ "${{ github.event.inputs.confirm_destroy }}" != "DESTROY" ]]; then
+          echo "❌ Confirmation failed. You must type 'DESTROY' exactly to proceed."
+          exit 1
+        fi
+        echo "✅ Confirmation validated. Proceeding with destruction..."
+
+    - name: Checkout
+      uses: actions/checkout@v4
+
+    - name: Configure AWS credentials
+      uses: aws-actions/configure-aws-credentials@v4
+      with:
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        aws-region: ${{ env.AWS_REGION }}
+
+    - name: Setup Terraform
+      uses: hashicorp/setup-terraform@v3
+      with:
+        terraform_version: '1.6.0'
+
+    - name: Download Terraform State
+      uses: actions/download-artifact@v4
+      with:
+        name: terraform-state-${{ github.event.inputs.project_name }}
+        path: runner-infrastructure/
+      continue-on-error: true
+
+    - name: Initialize Terraform
+      working-directory: runner-infrastructure
+      run: terraform init
+
+    - name: Import Existing Resources (if state not found)
+      working-directory: runner-infrastructure
+      run: |
+        # Try to find and import existing resources if state file is missing
+        if [[ ! -f terraform.tfstate ]]; then
+          echo "No state file found. Attempting to discover and import resources..."
+          
+          # Try to find EC2 instance by name tag
+          INSTANCE_ID=$(aws ec2 describe-instances \
+            --filters "Name=tag:Name,Values=${{ github.event.inputs.project_name }}-runner" \
+                     "Name=instance-state-name,Values=running,stopped" \
+            --query 'Reservations[0].Instances[0].InstanceId' \
+            --output text --region ${{ github.event.inputs.aws_region }} 2>/dev/null || echo "None")
+          
+          if [[ "$INSTANCE_ID" != "None" && "$INSTANCE_ID" != "null" ]]; then
+            echo "Found instance: $INSTANCE_ID"
+            echo "Importing instance into Terraform state..."
+            terraform import aws_instance.runner "$INSTANCE_ID" || true
+          fi
+        fi
+
+    - name: Terraform Destroy
+      working-directory: runner-infrastructure
+      run: |
+        echo "🔥 Destroying runner infrastructure..."
+        terraform destroy -auto-approve \
+          -var="project_name=${{ github.event.inputs.project_name }}" \
+          -var="aws_region=${{ github.event.inputs.aws_region }}" \
+          -var="instance_type=t2.micro" \
+          -var="github_repo=${{ github.repository }}" \
+          -var="github_token=dummy" \
+          -var="public_key=dummy" || true
+
+    - name: Manual Cleanup (if terraform destroy fails)
+      run: |
+        echo "🧹 Performing manual cleanup of any remaining resources..."
+        
+        # Find and terminate EC2 instances
+        INSTANCES=$(aws ec2 describe-instances \
+          --filters "Name=tag:Name,Values=${{ github.event.inputs.project_name }}-runner" \
+                   "Name=instance-state-name,Values=running,stopped,stopping" \
+          --query 'Reservations[].Instances[].InstanceId' \
+          --output text --region ${{ github.event.inputs.aws_region }} 2>/dev/null || echo "")
+        
+        if [[ -n "$INSTANCES" && "$INSTANCES" != "None" ]]; then
+          echo "Terminating instances: $INSTANCES"
+          aws ec2 terminate-instances --instance-ids $INSTANCES --region ${{ github.event.inputs.aws_region }}
+        fi
+        
+        # Find and delete security groups
+        SG_ID=$(aws ec2 describe-security-groups \
+          --filters "Name=group-name,Values=${{ github.event.inputs.project_name }}-runner-sg" \
+          --query 'SecurityGroups[0].GroupId' \
+          --output text --region ${{ github.event.inputs.aws_region }} 2>/dev/null || echo "None")
+        
+        if [[ "$SG_ID" != "None" && "$SG_ID" != "null" ]]; then
+          echo "Waiting for instances to terminate before deleting security group..."
+          sleep 30
+          echo "Deleting security group: $SG_ID"
+          aws ec2 delete-security-group --group-id "$SG_ID" --region ${{ github.event.inputs.aws_region }} || true
+        fi
+        
+        # Find and delete key pairs
+        aws ec2 delete-key-pair --key-name "${{ github.event.inputs.project_name }}-runner-key" --region ${{ github.event.inputs.aws_region }} 2>/dev/null || true
+
+    - name: Cleanup Summary
+      run: |
+        echo "## 🗑️ Runner Destruction Complete!" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "**Cleaned up:**" >> $GITHUB_STEP_SUMMARY
+        echo "- ✅ EC2 instances terminated" >> $GITHUB_STEP_SUMMARY
+        echo "- ✅ Security groups deleted" >> $GITHUB_STEP_SUMMARY
+        echo "- ✅ Key pairs removed" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "**Next steps:**" >> $GITHUB_STEP_SUMMARY
+        echo "- Check Settings > Actions > Runners to confirm the runner is offline" >> $GITHUB_STEP_SUMMARY
+        echo "- The runner will automatically unregister from GitHub when terminated" >> $GITHUB_STEP_SUMMARY

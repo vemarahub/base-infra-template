@@ -1,0 +1,63 @@
+name: 'Bootstrap Terraform Backend'
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Environment to bootstrap'
+        required: true
+        default: 'dev'
+        type: choice
+        options:
+          - dev
+          - prod
+      force_recreate:
+        description: 'Force recreate backend resources'
+        required: false
+        default: false
+        type: boolean
+
+env:
+  AWS_REGION: ${{ secrets.AWS_REGION }}
+
+jobs:
+  bootstrap:
+    name: 'Bootstrap Backend'
+    runs-on: self-hosted
+    environment: ${{ github.event.inputs.environment }}
+    
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+
+    - name: Configure AWS credentials
+      uses: aws-actions/configure-aws-credentials@v4
+      with:
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        aws-region: ${{ env.AWS_REGION }}
+
+    - name: Bootstrap Terraform Backend
+      run: |
+        echo "Starting bootstrap process..."
+        echo "Project: ${{ secrets.PROJECT_NAME }}"
+        echo "Environment: ${{ github.event.inputs.environment }}"
+        echo "Region: ${{ secrets.AWS_REGION }}"
+        
+        # Test AWS connectivity
+        echo "Testing AWS connectivity..."
+        aws sts get-caller-identity
+        
+        # Run bootstrap
+        chmod +x scripts/bootstrap.sh
+        ./scripts/bootstrap.sh \
+          --project "${{ secrets.PROJECT_NAME }}" \
+          --environment "${{ github.event.inputs.environment }}" \
+          --region "${{ secrets.AWS_REGION }}"
+
+    - name: Upload Backend Config
+      uses: actions/upload-artifact@v4
+      with:
+        name: backend-config-${{ github.event.inputs.environment }}
+        path: backend-config.hcl
+        retention-days: 30

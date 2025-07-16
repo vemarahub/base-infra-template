@@ -59,7 +59,7 @@ resource "aws_security_group" "runner_sg" {
 
 # Key Pair
 resource "aws_key_pair" "runner_key" {
-  key_name   = "${var.project_name}-runner-key"
+  key_name   = "${var.project_name}-runner-key-${random_id.runner_suffix.hex}"
   public_key = var.public_key
 }
 

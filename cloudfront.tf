@@ -1,7 +1,7 @@
 # CloudFront Origin Access Control
 resource "aws_cloudfront_origin_access_control" "main" {
-  name                              = "${var.project_name}-oac"
-  description                       = "OAC for ${var.project_name}"
+  name                              = "${local.clean_project_name}-oac"
+  description                       = "OAC for ${local.clean_project_name}"
   origin_access_control_origin_type = "s3"
   signing_behavior                  = "always"
   signing_protocol                  = "sigv4"
@@ -9,10 +9,10 @@ resource "aws_cloudfront_origin_access_control" "main" {
 
 # S3 Bucket for Static Assets
 resource "aws_s3_bucket" "static_assets" {
-  bucket = "${var.project_name}-static-assets-${random_string.bucket_suffix.result}"
+  bucket = "${local.clean_project_name}-static-assets-${random_string.bucket_suffix.result}"
 
   tags = {
-    Name = "${var.project_name}-static-assets"
+    Name = "${local.clean_project_name}-static-assets"
   }
 }
 

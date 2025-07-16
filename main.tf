@@ -14,7 +14,7 @@ provider "aws" {
 
 # ECR Repository
 resource "aws_ecr_repository" "app_repo" {
-  name                 = "${var.project_name}-app"
+  name                 = "${local.clean_project_name}-app"
   image_tag_mutability = "MUTABLE"
 
   image_scanning_configuration {
@@ -45,4 +45,3 @@ resource "aws_cloudwatch_log_group" "ecs" {
   name              = "/ecs/${var.project_name}"
   retention_in_days = 7
 }
-

@@ -1,152 +1,154 @@
-#!/bin/bash
-set -e
+name: 'Deploy Self-Hosted Runner'
 
-# Colors for output
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-NC='\033[0m' # No Color
+on:
+  workflow_dispatch:
+    inputs:
+      project_name:
+        description: 'Project name for the runner'
+        required: true
+        default: 'github-runner'
+      aws_region:
+        description: 'AWS region to deploy runner'
+        required: true
+        default: 'us-east-1'
+        type: choice
+        options:
+          - us-east-1
+          - us-west-2
+          - eu-west-1
+          - ap-southeast-1
+      instance_type:
+        description: 'EC2 instance type'
+        required: true
+        default: 't2.micro'
+        type: choice
+        options:
+          - t2.micro
+          - t2.small
+          - t2.medium
+          - t3.micro
+          - t3.small
+      github_token:
+        description: 'GitHub runner registration token (get from Settings > Actions > Runners > New runner)'
+        required: true
+      auto_approve:
+        description: 'Auto-approve terraform apply (skip confirmation)'
+        required: false
+        default: false
+        type: boolean
 
-# Default values
-PROJECT_NAME="github-runner"
-AWS_REGION="us-east-1"
-INSTANCE_TYPE="t2.micro"
+env:
+  AWS_REGION: ${{ github.event.inputs.aws_region }}
 
-# Function to print colored output
-print_status() {
-    echo -e "${GREEN}[INFO]${NC} $1"
-}
+jobs:
+  deploy-runner:
+    name: 'Deploy Runner Infrastructure'
+    runs-on: ubuntu-latest  # This runs on GitHub's runners to deploy your self-hosted runner
+    
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
 
-print_warning() {
-    echo -e "${YELLOW}[WARNING]${NC} $1"
-}
+    - name: Configure AWS credentials
+      uses: aws-actions/configure-aws-credentials@v4
+      with:
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        aws-region: ${{ env.AWS_REGION }}
 
-print_error() {
-    echo -e "${RED}[ERROR]${NC} $1"
-}
+    - name: Setup Terraform
+      uses: hashicorp/setup-terraform@v3
+      with:
+        terraform_version: '1.6.0'
 
-# Function to show usage
-usage() {
-    echo "Usage: $0 [OPTIONS]"
-    echo "Options:"
-    echo "  --project-name NAME    Project name (default: github-runner)"
-    echo "  --region REGION        AWS region (default: us-east-1)"
-    echo "  --instance-type TYPE   EC2 instance type (default: t2.micro)"
-    echo "  --github-repo URL      GitHub repository URL"
-    echo "  --github-token TOKEN   GitHub runner token"
-    echo "  --public-key-file FILE Path to public key file"
-    echo "  --help                 Show this help message"
-    exit 1
-}
+    - name: Generate SSH Key Pair
+      run: |
+        # Generate SSH key pair for EC2 access
+        ssh-keygen -t rsa -b 4096 -f ~/.ssh/runner_key -N ""
+        echo "PUBLIC_KEY=$(cat ~/.ssh/runner_key.pub)" >> $GITHUB_ENV
+        
+        # Save private key as output for later use
+        echo "PRIVATE_KEY<<EOF" >> $GITHUB_ENV
+        cat ~/.ssh/runner_key >> $GITHUB_ENV
+        echo "EOF" >> $GITHUB_ENV
 
-# Parse command line arguments
-while [[ $# -gt 0 ]]; do
-    case $1 in
-        --project-name)
-            PROJECT_NAME="$2"
-            shift 2
-            ;;
-        --region)
-            AWS_REGION="$2"
-            shift 2
-            ;;
-        --instance-type)
-            INSTANCE_TYPE="$2"
-            shift 2
-            ;;
-        --github-repo)
-            GITHUB_REPO="$2"
-            shift 2
-            ;;
-        --github-token)
-            GITHUB_TOKEN="$2"
-            shift 2
-            ;;
-        --public-key-file)
-            PUBLIC_KEY_FILE="$2"
-            shift 2
-            ;;
-        --help)
-            usage
-            ;;
-        *)
-            print_error "Unknown option: $1"
-            usage
-            ;;
-    esac
-done
+    - name: Initialize Terraform
+      working-directory: runner-infrastructure
+      run: terraform init
 
-# Validate required parameters
-if [[ -z "$GITHUB_REPO" ]]; then
-    print_error "GitHub repository URL is required (--github-repo)"
-    exit 1
-fi
+    - name: Terraform Plan
+      working-directory: runner-infrastructure
+      run: |
+        terraform plan \
+          -var="project_name=${{ github.event.inputs.project_name }}" \
+          -var="aws_region=${{ github.event.inputs.aws_region }}" \
+          -var="instance_type=${{ github.event.inputs.instance_type }}" \
+          -var="github_repo=${{ github.repository }}" \
+          -var="github_token=${{ github.event.inputs.github_token }}" \
+          -var="public_key=${{ env.PUBLIC_KEY }}" \
+          -out=tfplan
 
-if [[ -z "$GITHUB_TOKEN" ]]; then
-    print_error "GitHub token is required (--github-token)"
-    exit 1
-fi
+    - name: Terraform Apply
+      working-directory: runner-infrastructure
+      run: |
+        if [[ "${{ github.event.inputs.auto_approve }}" == "true" ]]; then
+          terraform apply -auto-approve tfplan
+        else
+          echo "⚠️  Manual approval required. Set 'auto_approve' to true to skip confirmation."
+          echo "Terraform plan is ready. To apply manually:"
+          echo "1. Download the artifacts from this workflow"
+          echo "2. Run: terraform apply tfplan"
+          exit 1
+        fi
 
-if [[ -z "$PUBLIC_KEY_FILE" ]]; then
-    print_error "Public key file is required (--public-key-file)"
-    exit 1
-fi
+    - name: Get Runner Information
+      working-directory: runner-infrastructure
+      run: |
+        echo "## 🚀 Runner Deployed Successfully!" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "**Instance Details:**" >> $GITHUB_STEP_SUMMARY
+        
+        # Get outputs with error handling
+        INSTANCE_ID=$(terraform output -raw runner_instance_id 2>/dev/null || echo "Check AWS Console")
+        PUBLIC_IP=$(terraform output -raw runner_public_ip 2>/dev/null || echo "Check AWS Console")
+        
+        echo "- Instance ID: $INSTANCE_ID" >> $GITHUB_STEP_SUMMARY
+        echo "- Public IP: $PUBLIC_IP" >> $GITHUB_STEP_SUMMARY
+        echo "- Instance Type: ${{ github.event.inputs.instance_type }}" >> $GITHUB_STEP_SUMMARY
+        echo "- Region: ${{ github.event.inputs.aws_region }}" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        
+        if [[ "$PUBLIC_IP" != "Check AWS Console" ]]; then
+          echo "**SSH Access:**" >> $GITHUB_STEP_SUMMARY
+          echo '```bash' >> $GITHUB_STEP_SUMMARY
+          echo "ssh -i runner_key ubuntu@$PUBLIC_IP" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+        else
+          echo "**SSH Access:** Check AWS Console for Public IP" >> $GITHUB_STEP_SUMMARY
+        fi
+        
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "**Runner Status:**" >> $GITHUB_STEP_SUMMARY
+        echo "The runner will appear in Settings > Actions > Runners in 2-3 minutes." >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "**Debug:** If runner doesn't appear, connect via AWS Session Manager and run:" >> $GITHUB_STEP_SUMMARY
+        echo '```bash' >> $GITHUB_STEP_SUMMARY
+        echo "sudo cat /var/log/cloud-init-output.log | tail -50" >> $GITHUB_STEP_SUMMARY
+        echo '```' >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "**⚠️ Important:** Remember to destroy the runner when done to avoid charges:" >> $GITHUB_STEP_SUMMARY
+        echo "Use the 'Destroy Self-Hosted Runner' workflow" >> $GITHUB_STEP_SUMMARY
 
-if [[ ! -f "$PUBLIC_KEY_FILE" ]]; then
-    print_error "Public key file not found: $PUBLIC_KEY_FILE"
-    exit 1
-fi
+    - name: Upload SSH Private Key
+      uses: actions/upload-artifact@v4
+      with:
+        name: runner-ssh-key-${{ github.event.inputs.project_name }}
+        path: ~/.ssh/runner_key
+        retention-days: 7
 
-# Read public key
-PUBLIC_KEY=$(cat "$PUBLIC_KEY_FILE")
-
-print_status "Deploying GitHub runner infrastructure..."
-print_status "Project: $PROJECT_NAME"
-print_status "Region: $AWS_REGION"
-print_status "Instance Type: $INSTANCE_TYPE"
-print_status "GitHub Repo: $GITHUB_REPO"
-
-# Change to runner infrastructure directory
-cd runner-infrastructure
-
-# Initialize Terraform
-print_status "Initializing Terraform..."
-terraform init
-
-# Plan deployment
-print_status "Planning deployment..."
-terraform plan \
-    -var="project_name=$PROJECT_NAME" \
-    -var="aws_region=$AWS_REGION" \
-    -var="instance_type=$INSTANCE_TYPE" \
-    -var="github_repo=$GITHUB_REPO" \
-    -var="github_token=$GITHUB_TOKEN" \
-    -var="public_key=$PUBLIC_KEY"
-
-# Ask for confirmation
-echo
-read -p "Do you want to proceed with the deployment? (y/N): " -n 1 -r
-echo
-if [[ ! $REPLY =~ ^[Yy]$ ]]; then
-    print_warning "Deployment cancelled."
-    exit 0
-fi
-
-# Apply deployment
-print_status "Deploying infrastructure..."
-terraform apply -auto-approve \
-    -var="project_name=$PROJECT_NAME" \
-    -var="aws_region=$AWS_REGION" \
-    -var="instance_type=$INSTANCE_TYPE" \
-    -var="github_repo=$GITHUB_REPO" \
-    -var="github_token=$GITHUB_TOKEN" \
-    -var="public_key=$PUBLIC_KEY"
-
-# Show outputs
-print_status "Deployment completed!"
-echo
-print_status "Runner details:"
-terraform output
-
-print_status "The runner will be available in GitHub in 2-3 minutes."
-print_warning "Remember to destroy the infrastructure when done: ./scripts/destroy-runner.sh"
+    - name: Upload Terraform State
+      uses: actions/upload-artifact@v4
+      with:
+        name: terraform-state-${{ github.event.inputs.project_name }}
+        path: runner-infrastructure/terraform.tfstate*
+        retention-days: 30

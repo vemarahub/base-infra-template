@@ -1,6 +1,8 @@
 # Bootstrap resources for Terraform state management
 # These resources need to be created before configuring the S3 backend
+# COMMENTED OUT: These resources are created by the bootstrap script
 
+/*
 # S3 bucket for Terraform state
 resource "aws_s3_bucket" "terraform_state" {
   bucket = "terraform-state-${local.clean_project_name}-${var.environment}-${random_string.state_suffix.result}"
@@ -64,3 +66,4 @@ resource "aws_dynamodb_table" "terraform_state_lock" {
     Project     = var.project_name
   }
 }
+*/

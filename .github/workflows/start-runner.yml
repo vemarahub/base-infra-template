@@ -1,0 +1,211 @@
+name: 'Start Self-Hosted Runner'
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Environment to start runner in'
+        required: true
+        default: 'dev'
+        type: choice
+        options:
+          - dev
+          - prod
+      runner_token:
+        description: 'GitHub Runner Registration Token'
+        required: true
+        type: string
+      runner_name:
+        description: 'Custom runner name (optional)'
+        required: false
+        type: string
+        default: ''
+
+env:
+  AWS_REGION: ${{ secrets.AWS_REGION }}
+
+jobs:
+  start-runner:
+    name: 'Configure and Start Runner'
+    runs-on: ubuntu-latest
+    environment: ${{ github.event.inputs.environment }}
+    
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+
+    - name: Configure AWS credentials
+      uses: aws-actions/configure-aws-credentials@v4
+      with:
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        aws-region: ${{ env.AWS_REGION }}
+
+    - name: Get EC2 Instance Information
+      id: get-instance
+      run: |
+        echo "Getting EC2 instance information..."
+        
+        # Get instance ID by tag
+        INSTANCE_ID=$(aws ec2 describe-instances \
+          --filters "Name=tag:Name,Values=${{ secrets.PROJECT_NAME }}-${{ github.event.inputs.environment }}-runner" \
+                   "Name=instance-state-name,Values=running" \
+          --query "Reservations[0].Instances[0].InstanceId" \
+          --output text)
+        
+        if [ "$INSTANCE_ID" = "None" ] || [ "$INSTANCE_ID" = "null" ]; then
+          echo "❌ No running EC2 instance found with tag: ${{ secrets.PROJECT_NAME }}-${{ github.event.inputs.environment }}-runner"
+          exit 1
+        fi
+        
+        # Get public IP
+        PUBLIC_IP=$(aws ec2 describe-instances \
+          --instance-ids $INSTANCE_ID \
+          --query "Reservations[0].Instances[0].PublicIpAddress" \
+          --output text)
+        
+        if [ "$PUBLIC_IP" = "None" ] || [ "$PUBLIC_IP" = "null" ]; then
+          echo "❌ Instance found but no public IP available"
+          exit 1
+        fi
+        
+        echo "✅ Found instance: $INSTANCE_ID"
+        echo "✅ Public IP: $PUBLIC_IP"
+        
+        echo "instance_id=$INSTANCE_ID" >> $GITHUB_OUTPUT
+        echo "public_ip=$PUBLIC_IP" >> $GITHUB_OUTPUT
+
+    - name: Wait for Instance to be Ready
+      run: |
+        echo "Waiting for instance to be fully ready..."
+        
+        # Wait for instance status checks to pass
+        aws ec2 wait instance-status-ok --instance-ids ${{ steps.get-instance.outputs.instance_id }}
+        
+        echo "✅ Instance status checks passed"
+        
+        # Additional wait for SSH to be ready
+        echo "Waiting for SSH to be available..."
+        for i in {1..30}; do
+          if timeout 10 ssh -o ConnectTimeout=5 -o StrictHostKeyChecking=no -i ~/.ssh/runner_key ubuntu@${{ steps.get-instance.outputs.public_ip }} echo "SSH Ready" 2>/dev/null; then
+            echo "✅ SSH is ready"
+            break
+          fi
+          echo "Attempt $i/30: SSH not ready yet, waiting 10 seconds..."
+          sleep 10
+        done
+
+    - name: Setup SSH Key
+      run: |
+        echo "Setting up SSH key..."
+        mkdir -p ~/.ssh
+        echo "${{ secrets.RUNNER_SSH_PRIVATE_KEY }}" > ~/.ssh/runner_key
+        chmod 600 ~/.ssh/runner_key
+        
+        # Add to known hosts to avoid prompt
+        ssh-keyscan -H ${{ steps.get-instance.outputs.public_ip }} >> ~/.ssh/known_hosts
+
+    - name: Generate Runner Name
+      id: runner-name
+      run: |
+        if [ -n "${{ github.event.inputs.runner_name }}" ]; then
+          RUNNER_NAME="${{ github.event.inputs.runner_name }}"
+        else
+          # Generate a unique runner name
+          RANDOM_SUFFIX=$(openssl rand -hex 4)
+          RUNNER_NAME="github-runner-${{ github.event.inputs.environment }}-${RANDOM_SUFFIX}"
+        fi
+        
+        echo "runner_name=$RUNNER_NAME" >> $GITHUB_OUTPUT
+        echo "✅ Runner name: $RUNNER_NAME"
+
+    - name: Configure GitHub Runner
+      run: |
+        echo "Configuring GitHub Runner on EC2 instance..."
+        
+        # Create the configuration script
+        cat > configure_runner.sh << 'EOF'
+        #!/bin/bash
+        set -e
+        
+        echo "🚀 Starting GitHub Runner configuration..."
+        
+        # Check if runner is already configured
+        if [ -f "/home/ubuntu/actions-runner/.runner" ]; then
+          echo "⚠️  Runner appears to be already configured. Removing existing configuration..."
+          cd /home/ubuntu/actions-runner
+          sudo ./svc.sh stop || true
+          sudo ./svc.sh uninstall || true
+          ./config.sh remove --token $1 || true
+        fi
+        
+        # Navigate to actions-runner directory
+        cd /home/ubuntu/actions-runner
+        
+        echo "📝 Configuring runner with GitHub..."
+        ./config.sh \
+          --url https://github.com/vemarahub/base-infra-template \
+          --token $1 \
+          --name $2 \
+          --labels linux,x64,aws,self-hosted,$3 \
+          --unattended
+        
+        echo "🔧 Installing runner service..."
+        sudo ./svc.sh install ubuntu
+        
+        echo "▶️  Starting runner service..."
+        sudo ./svc.sh start
+        
+        echo "📊 Checking runner status..."
+        sudo ./svc.sh status
+        
+        echo "✅ GitHub Runner configuration completed successfully!"
+        echo "Runner Name: $2"
+        echo "Environment: $3"
+        EOF
+        
+        # Make script executable
+        chmod +x configure_runner.sh
+        
+        # Copy script to EC2 instance
+        scp -i ~/.ssh/runner_key configure_runner.sh ubuntu@${{ steps.get-instance.outputs.public_ip }}:/tmp/
+        
+        # Execute the configuration script on EC2 instance
+        ssh -i ~/.ssh/runner_key ubuntu@${{ steps.get-instance.outputs.public_ip }} \
+          "bash /tmp/configure_runner.sh '${{ github.event.inputs.runner_token }}' '${{ steps.runner-name.outputs.runner_name }}' '${{ github.event.inputs.environment }}'"
+
+    - name: Verify Runner Status
+      run: |
+        echo "🔍 Verifying runner status..."
+        
+        # Check if the runner service is active
+        ssh -i ~/.ssh/runner_key ubuntu@${{ steps.get-instance.outputs.public_ip }} \
+          "sudo systemctl is-active actions.runner.* || echo 'Service check failed'"
+        
+        # Check runner logs
+        echo "📋 Recent runner logs:"
+        ssh -i ~/.ssh/runner_key ubuntu@${{ steps.get-instance.outputs.public_ip }} \
+          "sudo journalctl -u actions.runner.* --no-pager -n 10 || echo 'Log check failed'"
+
+    - name: Output Runner Information
+      run: |
+        echo "🎉 Runner configuration completed!"
+        echo ""
+        echo "📋 Runner Details:"
+        echo "  • Instance ID: ${{ steps.get-instance.outputs.instance_id }}"
+        echo "  • Public IP: ${{ steps.get-instance.outputs.public_ip }}"
+        echo "  • Runner Name: ${{ steps.runner-name.outputs.runner_name }}"
+        echo "  • Environment: ${{ github.event.inputs.environment }}"
+        echo "  • Repository: https://github.com/vemarahub/base-infra-template"
+        echo ""
+        echo "🔗 You can now use this runner in your workflows by adding:"
+        echo "    runs-on: self-hosted"
+        echo ""
+        echo "⚠️  Remember to stop the runner when not needed to save costs!"
+
+    - name: Cleanup
+      if: always()
+      run: |
+        # Clean up SSH key and temporary files
+        rm -f ~/.ssh/runner_key
+        rm -f configure_runner.sh

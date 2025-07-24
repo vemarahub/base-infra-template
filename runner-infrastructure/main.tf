@@ -79,7 +79,6 @@ resource "aws_instance" "github_runner" {
 
   user_data = base64encode(templatefile("${path.module}/user-data.sh", {
     github_repo  = var.github_repo
-    github_token = var.github_token
     runner_name  = "${var.project_name}-runner-${random_id.runner_suffix.hex}"
   }))
 

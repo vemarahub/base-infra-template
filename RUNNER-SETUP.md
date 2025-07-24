@@ -34,7 +34,6 @@ chmod +x scripts/deploy-runner.sh
   --project-name "my-project" \
   --region "us-east-1" \
   --github-repo "https://github.com/USERNAME/REPO" \
-  --github-token "YOUR_GITHUB_TOKEN" \
   --public-key-file ~/.ssh/github-runner-key.pub
 ```
 

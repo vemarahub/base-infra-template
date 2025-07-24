@@ -28,9 +28,6 @@ on:
           - t2.medium
           - t3.micro
           - t3.small
-      github_token:
-        description: 'GitHub runner registration token (get from Settings > Actions > Runners > New runner)'
-        required: true
       auto_approve:
         description: 'Auto-approve terraform apply (skip confirmation)'
         required: false
@@ -84,7 +81,6 @@ jobs:
           -var="aws_region=${{ github.event.inputs.aws_region }}" \
           -var="instance_type=${{ github.event.inputs.instance_type }}" \
           -var="github_repo=${{ github.repository }}" \
-          -var="github_token=${{ github.event.inputs.github_token }}" \
           -var="public_key=${{ env.PUBLIC_KEY }}" \
           -out=tfplan
 

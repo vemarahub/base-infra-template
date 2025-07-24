@@ -97,4 +97,28 @@ variable "cloudfront_price_class" {
     ], var.cloudfront_price_class)
     error_message = "CloudFront price class must be PriceClass_All, PriceClass_200, or PriceClass_100."
   }
+
+  variable "project_name" {
+  description = "Name of the project to be used as a prefix for all resources"
+  type        = string
+}
+
+variable "enable_container_insights" {
+  description = "Enable or disable CloudWatch Container Insights for the ECS cluster"
+  type        = bool
+  default     = false
+}
+
+variable "log_retention_days" {
+  description = "Number of days to retain CloudWatch logs"
+  type        = number
+  default     = 30
+}
+
+variable "tags" {
+  description = "A map of tags to add to all resources"
+  type        = map(string)
+  default     = {}
+}
+
 }

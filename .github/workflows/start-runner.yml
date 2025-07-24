@@ -104,7 +104,7 @@ jobs:
             
             # Download the SSH key artifact
             gh run download $WORKFLOW_RUN_ID \
-              --name "runner-ssh-key-${{ secrets.PROJECT_NAME }}" \
+              --name "runner-ssh-key-base \
               --dir /tmp/ssh-key/ || {
               echo "❌ Failed to download SSH key artifact"
               echo "Please either:"

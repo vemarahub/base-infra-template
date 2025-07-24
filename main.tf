@@ -57,6 +57,8 @@ module "ecs" {
   alb_security_group_id = module.security.alb_security_group_id
   log_retention_days    = 7
   tags                  = local.common_tags
+  enable_container_insights = true
+  container_ports       = [80, 443]
 }
 
 # API Gateway Module

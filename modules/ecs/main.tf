@@ -1,4 +1,5 @@
-# ECS Cluster
+# modules/ecs/main.tf
+
 resource "aws_ecs_cluster" "main" {
   name = "${var.project_name}-cluster"
 
@@ -10,7 +11,6 @@ resource "aws_ecs_cluster" "main" {
   tags = var.tags
 }
 
-# CloudWatch Log Group for ECS
 resource "aws_cloudwatch_log_group" "ecs" {
   name              = "/ecs/${var.project_name}"
   retention_in_days = var.log_retention_days
@@ -18,7 +18,6 @@ resource "aws_cloudwatch_log_group" "ecs" {
   tags = var.tags
 }
 
-# ECR Repository
 resource "aws_ecr_repository" "app_repo" {
   name                 = "${var.project_name}-app"
   image_tag_mutability = "MUTABLE"
@@ -30,7 +29,6 @@ resource "aws_ecr_repository" "app_repo" {
   tags = var.tags
 }
 
-# Security Group for ECS Tasks
 resource "aws_security_group" "ecs_tasks" {
   name        = "${var.project_name}-ecs-tasks-sg"
   description = "Security group for ECS tasks"

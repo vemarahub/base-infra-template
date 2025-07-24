@@ -1,119 +1,78 @@
+# variables.tf (root)
+
 variable "aws_region" {
-  description = "AWS region"
+  description = "AWS region to deploy resources"
   type        = string
-  default     = "us-west-2"
+  default     = "us-east-1"
 }
 
 variable "project_name" {
-  description = "Name of the project"
+  description = "The name of the project, used for naming resources"
   type        = string
-  default     = "my-app"
-}
-
-# Data sources
-data "aws_availability_zones" "available" {
-  state = "available"
 }
 
 variable "environment" {
-  description = "Environment (dev, staging, prod)"
+  description = "The environment (e.g., prod, dev)"
   type        = string
-  default     = "dev"
+  default     = "prod"
 }
 
-# VPC Configuration
 variable "vpc_cidr" {
-  description = "CIDR block for VPC"
+  description = "CIDR block for the VPC"
   type        = string
   default     = "10.0.0.0/16"
 }
 
-variable "availability_zones" {
-  description = "Availability zones (leave empty to auto-discover)"
-  type        = list(string)
-  default     = []
-}
-
 variable "public_subnet_cidrs" {
-  description = "CIDR blocks for public subnets"
+  description = "List of CIDR blocks for public subnets"
   type        = list(string)
-  default     = ["10.0.1.0/24", "10.0.2.0/24"]
+  default     = ["10.0.1.0/24", "10.0.2.0/24", "10.0.3.0/24"]
 }
 
 variable "private_subnet_cidrs" {
-  description = "CIDR blocks for private subnets"
+  description = "List of CIDR blocks for private subnets"
   type        = list(string)
-  default     = ["10.0.10.0/24", "10.0.20.0/24"]
+  default     = ["10.0.11.0/24", "10.0.12.0/24", "10.0.13.0/24"]
 }
 
-# Route53 Configuration
+variable "log_retention_days" {
+  description = "Number of days to retain logs in CloudWatch"
+  type        = number
+  default     = 7
+}
+
 variable "domain_name" {
-  description = "Domain name for Route53 (leave empty to skip DNS setup)"
+  description = "The domain name for the application"
   type        = string
   default     = ""
 }
 
-variable "subdomain" {
-  description = "Subdomain for the application (optional)"
-  type        = string
-  default     = ""
-}
-
-# API Gateway Configuration
 variable "api_domain_name" {
-  description = "Custom domain name for API Gateway (optional)"
+  description = "The domain name for API Gateway"
+  type        = string
+  default     = ""
+}
+
+variable "cloudfront_domain_name" {
+  description = "The domain name for CloudFront"
   type        = string
   default     = ""
 }
 
 variable "existing_certificate_arn" {
-  description = "ARN of existing ACM certificate (if not using Route53 managed certificate)"
+  description = "ARN of an existing ACM certificate"
   type        = string
   default     = ""
 }
 
-# CloudFront Configuration
 variable "cloudfront_aliases" {
-  description = "List of domain aliases for CloudFront distribution"
+  description = "List of aliases for CloudFront"
   type        = list(string)
   default     = []
 }
 
-variable "cloudfront_domain_name" {
-  description = "Custom domain name for CloudFront distribution (optional)"
-  type        = string
-  default     = ""
-}
-
 variable "cloudfront_price_class" {
-  description = "CloudFront distribution price class"
+  description = "CloudFront price class"
   type        = string
   default     = "PriceClass_100"
-  validation {
-    condition = contains([
-      "PriceClass_All",
-      "PriceClass_200",
-      "PriceClass_100"
-    ], var.cloudfront_price_class)
-    error_message = "CloudFront price class must be PriceClass_All, PriceClass_200, or PriceClass_100."
-  }
 }
-
-variable "enable_container_insights" {
-  description = "Enable or disable CloudWatch Container Insights for the ECS cluster"
-  type        = bool
-  default     = false
-}
-
-variable "log_retention_days" {
-  description = "Number of days to retain CloudWatch logs"
-  type        = number
-  default     = 30
-}
-
-variable "tags" {
-  description = "A map of tags to add to all resources"
-  type        = map(string)
-  default     = {}
-}
-

@@ -15,18 +15,6 @@ data "aws_availability_zones" "available" {
   state = "available"
 }
 
-# Local values for sanitized names and dynamic AZs
-locals {
-  # Sanitize project name for AWS resources that have strict naming requirements
-  sanitized_project_name = lower(replace(replace(var.project_name, "/[^a-zA-Z0-9-]/", "-"), "/--+/", "-"))
-  
-  # Remove leading/trailing hyphens
-  clean_project_name = trim(local.sanitized_project_name, "-")
-  
-  # Use provided AZs or auto-discover (take first 2 available)
-  availability_zones = length(var.availability_zones) > 0 ? var.availability_zones : slice(data.aws_availability_zones.available.names, 0, 2)
-}
-
 variable "environment" {
   description = "Environment (dev, staging, prod)"
   type        = string

@@ -26,9 +26,3 @@ variable "github_repo" {
   description = "GitHub repository URL (e.g., https://github.com/username/repo)"
   type        = string
 }
-
-variable "github_token" {
-  description = "GitHub runner registration token"
-  type        = string
-  sensitive   = true
-}

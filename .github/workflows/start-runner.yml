@@ -12,7 +12,7 @@ on:
           - dev
           - prod
       runner_token:
-        description: 'GitHub Runner Registration Token'
+        description: 'Git Runner Registration Token'
         required: true
         type: string
       runner_name:

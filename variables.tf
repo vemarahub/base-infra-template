@@ -97,8 +97,9 @@ variable "cloudfront_price_class" {
     ], var.cloudfront_price_class)
     error_message = "CloudFront price class must be PriceClass_All, PriceClass_200, or PriceClass_100."
   }
+}
 
-  variable "project_name" {
+variable "project_name" {
   description = "Name of the project to be used as a prefix for all resources"
   type        = string
 }
@@ -121,4 +122,3 @@ variable "tags" {
   default     = {}
 }
 
-}

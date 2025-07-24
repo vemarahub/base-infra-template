@@ -48,13 +48,13 @@ jobs:
         
         # Get instance ID by tag
         INSTANCE_ID=$(aws ec2 describe-instances \
-          --filters "Name=tag:Name,Values=${{ secrets.PROJECT_NAME }}-${{ github.event.inputs.environment }}-runner" \
+          --filters "Name=tag:Name,Values=github-runner-github-runner" \
                    "Name=instance-state-name,Values=running" \
           --query "Reservations[0].Instances[0].InstanceId" \
           --output text)
         
         if [ "$INSTANCE_ID" = "None" ] || [ "$INSTANCE_ID" = "null" ]; then
-          echo "❌ No running EC2 instance found with tag: ${{ secrets.PROJECT_NAME }}-${{ github.event.inputs.environment }}-runner"
+          echo "❌ No running EC2 instance found with tag: github-runner-github-runner"
           exit 1
         fi
         

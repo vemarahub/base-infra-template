@@ -1,0 +1,33 @@
+{
+  "rules":[
+    %{ for tags in ecr_tag_prefixes ~}
+    {
+      "rulePriority": ${index(ecr_tag_prefixes, tags) + 1},
+      "description": "Rotate images when tagged image count exceeds ${tagged_image_max_count} images",
+      "selection": {
+        "tagStatus": "tagged",
+        "tagPrefixList": [
+          "${tags}"
+        ],
+        "countType": "imageCountMoreThan",
+        "countNumber": ${tagged_image_max_count}
+      },
+      "action": {
+        "type": "expire"
+      }
+    },
+    %{ endfor ~}
+    {
+      "rulePriority": ${length(ecr_tag_prefixes) + 1},
+      "description": "Rotate images when image count exceeds ${max_image_count} images",
+      "selection": {
+        "tagStatus": "${tag_status}",
+        "countType": "imageCountMoreThan",
+        "countNumber": ${max_image_count}
+      },
+      "action": {
+        "type": "expire"
+      }
+    }
+  ]
+}

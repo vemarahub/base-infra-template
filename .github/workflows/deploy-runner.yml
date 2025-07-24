@@ -3,10 +3,6 @@ name: 'Deploy Self-Hosted Runner'
 on:
   workflow_dispatch:
     inputs:
-      project_name:
-        description: 'Project name for the runner'
-        required: true
-        default: 'github-runner'
       aws_region:
         description: 'AWS region to deploy runner'
         required: true
@@ -28,9 +24,6 @@ on:
           - t2.medium
           - t3.micro
           - t3.small
-      github_token:
-        description: 'GitHub runner registration token (get from Settings > Actions > Runners > New runner)'
-        required: true
       auto_approve:
         description: 'Auto-approve terraform apply (skip confirmation)'
         required: false
@@ -80,11 +73,10 @@ jobs:
       working-directory: runner-infrastructure
       run: |
         terraform plan \
-          -var="project_name=${{ github.event.inputs.project_name }}" \
+          -var="project_name=base" \
           -var="aws_region=${{ github.event.inputs.aws_region }}" \
           -var="instance_type=${{ github.event.inputs.instance_type }}" \
           -var="github_repo=${{ github.repository }}" \
-          -var="github_token=${{ github.event.inputs.github_token }}" \
           -var="public_key=${{ env.PUBLIC_KEY }}" \
           -out=tfplan
 
@@ -123,19 +115,19 @@ jobs:
         echo "**⚠️ Important:** Remember to destroy the runner when done to avoid charges:" >> $GITHUB_STEP_SUMMARY
         echo "Use the 'Destroy Self-Hosted Runner' workflow or run locally:" >> $GITHUB_STEP_SUMMARY
         echo '```bash' >> $GITHUB_STEP_SUMMARY
-        echo "./scripts/destroy-runner.sh --project-name ${{ github.event.inputs.project_name }} --region ${{ github.event.inputs.aws_region }}" >> $GITHUB_STEP_SUMMARY
+        echo "./scripts/destroy-runner.sh --project-name base --region ${{ github.event.inputs.aws_region }}" >> $GITHUB_STEP_SUMMARY
         echo '```' >> $GITHUB_STEP_SUMMARY
 
     - name: Upload SSH Private Key
       uses: actions/upload-artifact@v4
       with:
-        name: runner-ssh-key-${{ github.event.inputs.project_name }}
+        name: runner-ssh-key-base
         path: ~/.ssh/runner_key
         retention-days: 7
 
     - name: Upload Terraform State
       uses: actions/upload-artifact@v4
       with:
-        name: terraform-state-${{ github.event.inputs.project_name }}
+        name: terraform-state-base
         path: runner-infrastructure/terraform.tfstate*
         retention-days: 30

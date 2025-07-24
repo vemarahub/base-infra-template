@@ -48,13 +48,13 @@ jobs:
         
         # Get instance ID by tag
         INSTANCE_ID=$(aws ec2 describe-instances \
-          --filters "Name=tag:Name,Values=github-runner-github-runner" \
+          --filters "Name=tag:Name,Values=base" \
                    "Name=instance-state-name,Values=running" \
           --query "Reservations[0].Instances[0].InstanceId" \
           --output text)
         
         if [ "$INSTANCE_ID" = "None" ] || [ "$INSTANCE_ID" = "null" ]; then
-          echo "❌ No running EC2 instance found with tag: github-runner-github-runner"
+          echo "❌ No running EC2 instance found with tag: base"
           exit 1
         fi
         
@@ -75,6 +75,37 @@ jobs:
         echo "instance_id=$INSTANCE_ID" >> $GITHUB_OUTPUT
         echo "public_ip=$PUBLIC_IP" >> $GITHUB_OUTPUT
 
+    - name: Setup SSH Key
+      run: |
+        echo "Setting up SSH key..."
+        mkdir -p ~/.ssh
+        
+        # Write the private key and ensure proper format
+        echo "${{ secrets.RUNNER_SSH_PRIVATE_KEY }}" > ~/.ssh/runner_key
+        
+        # Fix potential line ending issues and ensure proper format
+        sed -i 's/\r$//' ~/.ssh/runner_key
+        
+        # Ensure the key starts and ends properly
+        if ! grep -q "BEGIN.*PRIVATE KEY" ~/.ssh/runner_key; then
+          echo "❌ SSH private key format appears invalid"
+          echo "Key should start with '-----BEGIN [RSA/OPENSSH/EC] PRIVATE KEY-----'"
+          exit 1
+        fi
+        
+        # Set proper permissions
+        chmod 600 ~/.ssh/runner_key
+        
+        # Verify key format
+        ssh-keygen -l -f ~/.ssh/runner_key || {
+          echo "❌ SSH key validation failed"
+          echo "Please check that RUNNER_SSH_PRIVATE_KEY secret contains a valid private key"
+          exit 1
+        }
+        
+        # Add to known hosts to avoid prompt
+        ssh-keyscan -H ${{ steps.get-instance.outputs.public_ip }} >> ~/.ssh/known_hosts 2>/dev/null
+
     - name: Wait for Instance to be Ready
       run: |
         echo "Waiting for instance to be fully ready..."
@@ -94,16 +125,6 @@ jobs:
           echo "Attempt $i/30: SSH not ready yet, waiting 10 seconds..."
           sleep 10
         done
-
-    - name: Setup SSH Key
-      run: |
-        echo "Setting up SSH key..."
-        mkdir -p ~/.ssh
-        echo "${{ secrets.RUNNER_SSH_PRIVATE_KEY }}" > ~/.ssh/runner_key
-        chmod 600 ~/.ssh/runner_key
-        
-        # Add to known hosts to avoid prompt
-        ssh-keyscan -H ${{ steps.get-instance.outputs.public_ip }} >> ~/.ssh/known_hosts
 
     - name: Generate Runner Name
       id: runner-name

@@ -99,11 +99,6 @@ variable "cloudfront_price_class" {
   }
 }
 
-variable "project_name" {
-  description = "Name of the project to be used as a prefix for all resources"
-  type        = string
-}
-
 variable "enable_container_insights" {
   description = "Enable or disable CloudWatch Container Insights for the ECS cluster"
   type        = bool

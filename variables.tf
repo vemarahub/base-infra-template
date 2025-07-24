@@ -76,3 +76,9 @@ variable "cloudfront_price_class" {
   type        = string
   default     = "PriceClass_100"
 }
+
+variable "create_dynamodb_table" {
+  description = "Whether to create the DynamoDB table for state locking"
+  type        = bool
+  default     = false
+}

@@ -12,7 +12,7 @@ on:
           - dev
           - prod
       runner_token:
-        description: 'Git Runner Registration Token'
+        description: 'GitHub Runner Registration Token'
         required: true
         type: string
       runner_name:
@@ -80,8 +80,55 @@ jobs:
         echo "Setting up SSH key..."
         mkdir -p ~/.ssh
         
-        # Write the private key and ensure proper format
-        echo "${{ secrets.RUNNER_SSH_PRIVATE_KEY }}" > ~/.ssh/runner_key
+        # First, try to get SSH key from RUNNER_SSH_PRIVATE_KEY secret
+        if [ -n "${{ secrets.RUNNER_SSH_PRIVATE_KEY }}" ]; then
+          echo "Using SSH key from RUNNER_SSH_PRIVATE_KEY secret..."
+          echo "${{ secrets.RUNNER_SSH_PRIVATE_KEY }}" > ~/.ssh/runner_key
+        else
+          echo "RUNNER_SSH_PRIVATE_KEY secret not found."
+          echo "Attempting to download SSH key from deploy-runner artifacts..."
+          
+          # Try to download the most recent SSH key artifact
+          # This requires the GitHub CLI which is available in GitHub Actions
+          
+          # Get the most recent successful deploy-runner workflow run
+          WORKFLOW_RUN_ID=$(gh run list \
+            --workflow="deploy-runner.yml" \
+            --status=success \
+            --limit=1 \
+            --json=databaseId \
+            --jq='.[0].databaseId' || echo "")
+          
+          if [ -n "$WORKFLOW_RUN_ID" ] && [ "$WORKFLOW_RUN_ID" != "null" ]; then
+            echo "Found deploy-runner workflow run: $WORKFLOW_RUN_ID"
+            
+            # Download the SSH key artifact
+            gh run download $WORKFLOW_RUN_ID \
+              --name "runner-ssh-key-${{ secrets.PROJECT_NAME }}" \
+              --dir /tmp/ssh-key/ || {
+              echo "❌ Failed to download SSH key artifact"
+              echo "Please either:"
+              echo "1. Set the RUNNER_SSH_PRIVATE_KEY secret manually, or"
+              echo "2. Re-run the deploy-runner workflow to generate a new key"
+              exit 1
+            }
+            
+            # Copy the downloaded key
+            if [ -f "/tmp/ssh-key/runner_key" ]; then
+              cp /tmp/ssh-key/runner_key ~/.ssh/runner_key
+              echo "✅ SSH key downloaded from artifacts"
+            else
+              echo "❌ SSH key file not found in downloaded artifact"
+              exit 1
+            fi
+          else
+            echo "❌ No successful deploy-runner workflow run found"
+            echo "Please either:"
+            echo "1. Run the deploy-runner workflow first to create the EC2 instance and SSH key, or"
+            echo "2. Set the RUNNER_SSH_PRIVATE_KEY secret manually"
+            exit 1
+          fi
+        fi
         
         # Fix potential line ending issues and ensure proper format
         sed -i 's/\r$//' ~/.ssh/runner_key
@@ -90,6 +137,14 @@ jobs:
         if ! grep -q "BEGIN.*PRIVATE KEY" ~/.ssh/runner_key; then
           echo "❌ SSH private key format appears invalid"
           echo "Key should start with '-----BEGIN [RSA/OPENSSH/EC] PRIVATE KEY-----'"
+          echo ""
+          echo "If you used deploy-runner.yml workflow:"
+          echo "1. Go to the deploy-runner workflow run"
+          echo "2. Download the 'runner-ssh-key-*' artifact"
+          echo "3. Copy the content to RUNNER_SSH_PRIVATE_KEY secret"
+          echo ""
+          echo "Or run this command to set it automatically:"
+          echo "gh secret set RUNNER_SSH_PRIVATE_KEY < path/to/downloaded/runner_key"
           exit 1
         fi
         
@@ -99,12 +154,14 @@ jobs:
         # Verify key format
         ssh-keygen -l -f ~/.ssh/runner_key || {
           echo "❌ SSH key validation failed"
-          echo "Please check that RUNNER_SSH_PRIVATE_KEY secret contains a valid private key"
+          echo "Please check that the SSH key is in the correct format"
           exit 1
         }
         
         # Add to known hosts to avoid prompt
         ssh-keyscan -H ${{ steps.get-instance.outputs.public_ip }} >> ~/.ssh/known_hosts 2>/dev/null
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
     - name: Wait for Instance to be Ready
       run: |

@@ -1,7 +1,6 @@
 # AWS Infrastructure with Terraform
 
-This project sets up a complete AWS infrastructure including VPC, ECS, ECR, CloudWatch, Lambda, Application Load Balancer, Route53, API Gateway, and CloudFront.
-
+This project sets up a complete AWS infrastructure for personal projects on GIT
 ## Prerequisites
 
 - AWS CLI configured

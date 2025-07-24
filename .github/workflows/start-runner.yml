@@ -80,7 +80,7 @@ jobs:
         echo "Setting up SSH key..."
         mkdir -p ~/.ssh
         
-        # First, try to get SSH key from RUNNER_SSH_PRIVATE_KEY secret
+        # First, try to use SSH key from secret if it exists
         if [ -n "${{ secrets.RUNNER_SSH_PRIVATE_KEY }}" ]; then
           echo "Using SSH key from RUNNER_SSH_PRIVATE_KEY secret..."
           echo "${{ secrets.RUNNER_SSH_PRIVATE_KEY }}" > ~/.ssh/runner_key
@@ -88,44 +88,71 @@ jobs:
           echo "RUNNER_SSH_PRIVATE_KEY secret not found."
           echo "Attempting to download SSH key from deploy-runner artifacts..."
           
-          # Try to download the most recent SSH key artifact
-          # This requires the GitHub CLI which is available in GitHub Actions
-          
           # Get the most recent successful deploy-runner workflow run
+          echo "Searching for deploy-runner workflow runs..."
           WORKFLOW_RUN_ID=$(gh run list \
             --workflow="deploy-runner.yml" \
             --status=success \
             --limit=1 \
             --json=databaseId \
-            --jq='.[0].databaseId' || echo "")
+            --jq='.[0].databaseId' 2>/dev/null || echo "")
           
-          if [ -n "$WORKFLOW_RUN_ID" ] && [ "$WORKFLOW_RUN_ID" != "null" ]; then
-            echo "Found deploy-runner workflow run: $WORKFLOW_RUN_ID"
-            
-            # Download the SSH key artifact
-            gh run download $WORKFLOW_RUN_ID \
-              --name "runner-ssh-key-base \
-              --dir /tmp/ssh-key/ || {
-              echo "❌ Failed to download SSH key artifact"
-              echo "Please either:"
-              echo "1. Set the RUNNER_SSH_PRIVATE_KEY secret manually, or"
-              echo "2. Re-run the deploy-runner workflow to generate a new key"
-              exit 1
-            }
-            
-            # Copy the downloaded key
-            if [ -f "/tmp/ssh-key/runner_key" ]; then
-              cp /tmp/ssh-key/runner_key ~/.ssh/runner_key
-              echo "✅ SSH key downloaded from artifacts"
-            else
-              echo "❌ SSH key file not found in downloaded artifact"
-              exit 1
-            fi
-          else
+          if [ -z "$WORKFLOW_RUN_ID" ] || [ "$WORKFLOW_RUN_ID" = "null" ]; then
             echo "❌ No successful deploy-runner workflow run found"
+            echo ""
             echo "Please either:"
-            echo "1. Run the deploy-runner workflow first to create the EC2 instance and SSH key, or"
+            echo "1. Run the 'Deploy Self-Hosted Runner' workflow first, or"
             echo "2. Set the RUNNER_SSH_PRIVATE_KEY secret manually"
+            exit 1
+          fi
+          
+          echo "✅ Found deploy-runner workflow run: $WORKFLOW_RUN_ID"
+          
+          # Try to determine the project name for the artifact
+          PROJECT_NAME="${{ secrets.PROJECT_NAME }}"
+          if [ -z "$PROJECT_NAME" ]; then
+            PROJECT_NAME="github-runner"  # fallback default
+          fi
+          
+          echo "Looking for SSH key artifact: runner-ssh-key-$PROJECT_NAME"
+          
+          # Download the SSH key artifact
+          if gh run download $WORKFLOW_RUN_ID \
+            --name "runner-ssh-key-$PROJECT_NAME" \
+            --dir /tmp/ssh-key/ 2>/dev/null; then
+            echo "✅ Downloaded SSH key artifact successfully"
+          else
+            # Try with different possible artifact names
+            echo "Trying alternative artifact names..."
+            
+            # List all artifacts for this run to see what's available
+            echo "Available artifacts:"
+            gh run view $WORKFLOW_RUN_ID --json artifacts --jq '.artifacts[].name' || true
+            
+            # Try common variations
+            for artifact_name in "runner-ssh-key-base" "runner-ssh-key-github-runner" "runner-ssh-key"; do
+              echo "Trying artifact name: $artifact_name"
+              if gh run download $WORKFLOW_RUN_ID \
+                --name "$artifact_name" \
+                --dir /tmp/ssh-key/ 2>/dev/null; then
+                echo "✅ Downloaded SSH key artifact: $artifact_name"
+                break
+              fi
+            done
+          fi
+          
+          # Check if we successfully downloaded the key
+          if [ -f "/tmp/ssh-key/runner_key" ]; then
+            cp /tmp/ssh-key/runner_key ~/.ssh/runner_key
+            echo "✅ SSH key downloaded and copied from artifacts"
+          else
+            echo "❌ SSH key file not found in downloaded artifact"
+            echo "Expected file: /tmp/ssh-key/runner_key"
+            echo ""
+            echo "Available files in artifact:"
+            ls -la /tmp/ssh-key/ 2>/dev/null || echo "No files found"
+            echo ""
+            echo "Please check the deploy-runner workflow artifacts or set RUNNER_SSH_PRIVATE_KEY secret manually"
             exit 1
           fi
         fi
@@ -138,13 +165,8 @@ jobs:
           echo "❌ SSH private key format appears invalid"
           echo "Key should start with '-----BEGIN [RSA/OPENSSH/EC] PRIVATE KEY-----'"
           echo ""
-          echo "If you used deploy-runner.yml workflow:"
-          echo "1. Go to the deploy-runner workflow run"
-          echo "2. Download the 'runner-ssh-key-*' artifact"
-          echo "3. Copy the content to RUNNER_SSH_PRIVATE_KEY secret"
-          echo ""
-          echo "Or run this command to set it automatically:"
-          echo "gh secret set RUNNER_SSH_PRIVATE_KEY < path/to/downloaded/runner_key"
+          echo "First few lines of the key file:"
+          head -3 ~/.ssh/runner_key || echo "Cannot read key file"
           exit 1
         fi
         
@@ -157,6 +179,8 @@ jobs:
           echo "Please check that the SSH key is in the correct format"
           exit 1
         }
+        
+        echo "✅ SSH key validated successfully"
         
         # Add to known hosts to avoid prompt
         ssh-keyscan -H ${{ steps.get-instance.outputs.public_ip }} >> ~/.ssh/known_hosts 2>/dev/null

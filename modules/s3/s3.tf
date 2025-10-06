@@ -4,7 +4,7 @@ locals {
     "VersioningEnabled"        = var.versioning == "Enabled" ? true : false
     "BlockPublicAccessEnabled" = (var.public_access_configuration.block_public_acls && var.public_access_configuration.block_public_policy && var.public_access_configuration.ignore_public_acls && var.public_access_configuration.restrict_public_buckets)
   }
-  current_account_logging_bucket = "pvh-${data.aws_caller_identity.current.account_id}-s3-logging-bucket"
+  current_account_logging_bucket = "hellowereld-${data.aws_caller_identity.current.account_id}-s3-logging-bucket"
 }
 
 data "aws_caller_identity" "current" {}
